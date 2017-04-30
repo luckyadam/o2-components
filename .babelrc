@@ -1,0 +1,22 @@
+{
+  "presets": [
+    "es2015",
+    "stage-0"
+  ],
+  "plugins": [
+    ["root-import", [{
+      "rootPathPrefix": "@",
+      "rootPathSuffix": "src"
+    }, {
+      "rootPathPrefix": "~",
+      "rootPathSuffix": "src/lib/util"
+    }, {
+      "rootPathPrefix": "#",
+      "rootPathSuffix": "src/lib/vdom"
+    }]],
+    ["transform-react-jsx", {
+      "pragma": "h"
+    }]
+  ],
+  "comments": false
+}
