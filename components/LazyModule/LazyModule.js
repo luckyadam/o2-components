@@ -17,10 +17,19 @@ class LazyModule extends Base.Component {
   }
 
   render () {
+    const { placeholder, placeholderClassName, height } = this.props
     let ComponentClass = this.state.ComponentClass
     if (ComponentClass) {
       return <ComponentClass id={this.props.id} dataSource={this.props.dataSource} />
     }
-    return <div style={{ height: this.props.height }} />
+    if (placeholder && placeholder.type === 'Widget') {
+      return placeholder
+    }
+    return <div className={placeholderClassName} style={{height: height}}></div>
   }
+}
+
+LazyModule.defaultProps = {
+  placeholder: null,
+  placeholderClassName: 'mod_lazyload_placeholder'  
 }
