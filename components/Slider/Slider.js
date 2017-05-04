@@ -39,7 +39,7 @@ class Slider extends Base.Component {
 
   autoPlay () {
     this.autoPlayTimer && clearTimeout(this.autoPlayTimer)
-    if (this.props.autoPlay) {
+    if (this.props.autoPlay && !this.state.pause) {
       this.autoPlayTimer = setTimeout(this.play.bind(this), this.props.autoPlayInterval)
     }
   }
@@ -53,18 +53,24 @@ class Slider extends Base.Component {
       return false
     }
     nextIndex = this.currentSlide + this.props.slidesToScroll
-    this.sliderTo(nextIndex)
+    this.slideTo(nextIndex)
   }
 
   pause () {
-
+    this.autoPlayTimer && clearTimeout(this.autoPlayTimer)
+    this.setState({
+      pause: true
+    })
   }
 
-  sliderTo (index) {
+  slideTo (index) {
     let currentSlide
     let targetSlide
     const { fade, infinite, afterChange, beforeChange, speed } = this.props
     const { slideCount } = this.state
+    if (this.animating) {
+      return
+    }
     if (fade) {
       currentSlide = this.currentSlide
       if (infinite === false &&
@@ -86,6 +92,7 @@ class Slider extends Base.Component {
       if (beforeChange) {
         beforeChange.call(this, currentSlide, targetSlide)
       }
+      this.animating = true
       this.sliderItems.forEach((itemNode, i) => {
         if (i === targetSlide) {
           itemNode.style.zIndex = 1
@@ -95,8 +102,9 @@ class Slider extends Base.Component {
           itemNode.style.zIndex = 0
         }
       })
-      setTimeout(() => {
         this.currentSlide = targetSlide
+      setTimeout(() => {
+        this.animating = false
         if (afterChange) {
           afterChange.call(targetSlide)
         }
@@ -104,6 +112,31 @@ class Slider extends Base.Component {
       
       this.autoPlay()
     }
+  }
+
+  changeSlide (type) {
+    let indexOffset, previousInt, slideOffset, unevenOffset, targetSlide
+    const { slidesToScroll, slidesToShow } = this.props
+    const { slideCount } = this.state
+    const currentSlide = this.currentSlide
+    unevenOffset = (slideCount % slidesToScroll !== 0)
+    indexOffset = unevenOffset ? 0 : (slideCount - currentSlide) % slidesToScroll
+    if (type === 'previous') {
+      slideOffset = (indexOffset === 0) ? slidesToScroll : slidesToShow - indexOffset;
+      targetSlide = currentSlide - slideOffset
+    } else if (type === 'next') {
+      slideOffset = (indexOffset === 0) ? slidesToScroll : indexOffset;
+      targetSlide = currentSlide + slideOffset
+    }
+    this.slideTo(targetSlide)
+  }
+
+  slideToPrev () {
+    this.changeSlide('previous')
+  }
+
+  slideToNext () {
+    this.changeSlide('next')
   }
 
   canGoNext () {
@@ -198,13 +231,19 @@ class Slider extends Base.Component {
     const props = this.props
     let prevArrow, nextArrow, indicators
     
-    const arrowProps = {
-      prevArrow: props.prevArrow, 
-      nextArrow: props.nextArrow
+     const prevArrowProps = {
+      clickHandler: this.slideToPrev.bind(this),
+      arrow: props.prevArrow,
+      text: '上一张'
+    }
+    const nextArrowProps = {
+      clickHandler: this.slideToNext.bind(this),
+      arrow: props.nextArrow,
+      text: '下一张'
     }
     if (props.arrows) {
-      prevArrow = <PrevArrow {...arrowProps} />
-      nextArrow = <NextArrow {...arrowProps} />
+      prevArrow = <Arrow {...prevArrowProps} />
+      nextArrow = <Arrow {...nextArrowProps} />
     }
     const indicatorsProps = {
 
@@ -338,25 +377,18 @@ const fadeOut = (function () {
   }
 })()
 
-class PrevArrow extends Base.Component {
+class Arrow extends Base.Component {
   constructor () {
     super(...arguments)
+  }
 
+  onClickHandler = (event) => {
+    event && event.preventDefault()
+    this.props.clickHandler()
   }
 
   render () {
-    return <div></div>
-  }
-}
-
-class NextArrow extends Base.Component {
-  constructor () {
-    super(...arguments)
-
-  }
-
-  render () {
-    return <div></div>
+    return <button onClick={this.onClickHandler}>{this.props.text}</button>
   }
 }
 
