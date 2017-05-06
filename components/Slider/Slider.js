@@ -1,7 +1,9 @@
 class Slider extends Base.Component {
   constructor () {
     super(...arguments)
-    this.currentSlide = this.props.currentSlide
+    this.state = {
+      currentSlide: this.props.currentSlide
+    }
   }
 
   sliderListRef = (ref) => {
@@ -15,23 +17,27 @@ class Slider extends Base.Component {
     }
   }
   
-  componentWillMount () {
+  componentWillReceiveProps () {
+    this.sliderItems = []
+    this.pause()
+    this.initSlider()
   }
 
   componentDidMount () {
-    this.afterMount()
+    this.initSlider()
   }
 
-  afterMount () {
+  initSlider () {
     let slideWidth = getWidth(this.dom)
-    let slideCount = this.slides.length
+    let slideCount = this.props.children.length
     let wrapperStyle = {}
-    wrapperStyle.width = slideCount * slideWidth
+    wrapperStyle.width = (slideCount + 2 * this.props.slidesToShow) * slideWidth
     this.setState({
       mounted: true,
       slideWidth,
       slideCount,
-      wrapperStyle
+      wrapperStyle,
+      pause: false
     }, () => {
       this.autoPlay()
     })
@@ -52,7 +58,7 @@ class Slider extends Base.Component {
     if (!this.canGoNext()) {
       return false
     }
-    nextIndex = this.currentSlide + this.props.slidesToScroll
+    nextIndex = this.state.currentSlide + this.props.slidesToScroll
     this.slideTo(nextIndex)
   }
 
@@ -72,7 +78,7 @@ class Slider extends Base.Component {
       return
     }
     if (fade) {
-      currentSlide = this.currentSlide
+      currentSlide = this.state.currentSlide
       if (infinite === false &&
         (index < 0 || index >= slideCount)) {
         return
@@ -102,23 +108,24 @@ class Slider extends Base.Component {
           itemNode.style.zIndex = 0
         }
       })
-        this.currentSlide = targetSlide
-      setTimeout(() => {
-        this.animating = false
-        if (afterChange) {
-          afterChange.call(targetSlide)
-        }
-      }, speed)
-      
+      this.setState({
+        currentSlide: targetSlide
+      }, function () {
+        setTimeout(() => {
+          this.animating = false
+          if (afterChange) {
+            afterChange.call(targetSlide)
+          }
+        }, speed)
+      })
       this.autoPlay()
     }
   }
 
-  changeSlide (type) {
+  changeSlide (type, opts) {
     let indexOffset, previousInt, slideOffset, unevenOffset, targetSlide
     const { slidesToScroll, slidesToShow } = this.props
-    const { slideCount } = this.state
-    const currentSlide = this.currentSlide
+    const { slideCount, currentSlide } = this.state
     unevenOffset = (slideCount % slidesToScroll !== 0)
     indexOffset = unevenOffset ? 0 : (slideCount - currentSlide) % slidesToScroll
     if (type === 'previous') {
@@ -127,6 +134,8 @@ class Slider extends Base.Component {
     } else if (type === 'next') {
       slideOffset = (indexOffset === 0) ? slidesToScroll : indexOffset;
       targetSlide = currentSlide + slideOffset
+    } else if (type === 'indicate') {
+      targetSlide = opts.index * slidesToScroll
     }
     this.slideTo(targetSlide)
   }
@@ -139,11 +148,33 @@ class Slider extends Base.Component {
     this.changeSlide('next')
   }
 
+  slideToTarget (index) {
+    this.changeSlide('indicate', {
+      index
+    })
+  }
+
+  onSliderOver (e) {
+    if (this.props.pauseOnHover) {
+      this.pause()
+    }
+  }
+
+  onSliderOut (e) {
+    if (this.props.pauseOnHover) {
+      this.setState({
+        pause: false
+      }, function () {
+        this.autoPlay()
+      })
+    }
+  }
+
   canGoNext () {
     if (!this.props.infinite) {
       let slideCount = this.state.slideCount
       let slidesToShow = this.props.slidesToShow
-      let currentSlide = this.currentSlide
+      let currentSlide = this.state.currentSlide
       if (slideCount <= slidesToShow
         || currentSlide >= (slideCount - slidesToShow)) {
         return false
@@ -216,7 +247,8 @@ class Slider extends Base.Component {
     const state = this.state
     let style = {}
     style.width = state.slideWidth
-    const isCurrent = this.currentSlide === index
+    style.float = 'left'
+    const isCurrent = this.state.currentSlide === index
     if (props.fade) {
       style.position = 'relative'
       style.left = -index * state.slideWidth
@@ -230,39 +262,46 @@ class Slider extends Base.Component {
   render () {
     const props = this.props
     let prevArrow, nextArrow, indicators
-    
      const prevArrowProps = {
       clickHandler: this.slideToPrev.bind(this),
       arrow: props.prevArrow,
-      text: '上一张'
+      className: addClassName('slider_control slider_control_prev', props.prevArrowClassName),
+      text: props.prevArrowText || '<'
     }
     const nextArrowProps = {
       clickHandler: this.slideToNext.bind(this),
       arrow: props.nextArrow,
-      text: '下一张'
+      className: addClassName('slider_control slider_control_next', props.nextArrowClassName),
+      text: props.nextArrowText || '>'
     }
     if (props.arrows) {
       prevArrow = <Arrow {...prevArrowProps} />
       nextArrow = <Arrow {...nextArrowProps} />
     }
     const indicatorsProps = {
-
+      count: this.state.slideCount,
+      currentIndex: this.state.currentSlide,
+      itemHandler: this.slideToTarget.bind(this),
+      indicatorHoverToSlide: props.indicatorHoverToSlide
     }
     if (props.indicators) {
       indicators = <Indicators {...indicatorsProps} />
     }
     let className = addClassName('slider', props.className)
-    this.slides = this.renderSlides()
+    const slides = this.renderSlides()
     return (
       <div className={className}>
-        {prevArrow}
-        <div className="slider_list" ref={this.sliderListRef}>
+        {slides.length > 1 && prevArrow}
+        {slides.length > 0 && <div className="slider_list"
+          ref={this.sliderListRef}
+          onMouseOver={this.onSliderOver.bind(this)}
+          onMouseOut={this.onSliderOut.bind(this)}>
           <div className='slider_wrapper' style={this.state.wrapperStyle}>
-            {this.slides}
+            {slides}
           </div>
-        </div>
-        {nextArrow}
-        {indicators}
+        </div>}
+        {slides.length > 1 && nextArrow}
+        {slides.length > 1 && indicators}
       </div>
     )
   }
@@ -277,7 +316,7 @@ Slider.defaultProps = {
   infinite: true,
   speed: 300,
   currentSlide: 0,
-  auto: false
+  pauseOnHover: true
 }
 
 function getWidth (node) {
@@ -288,6 +327,11 @@ function getWidth (node) {
 }
 
 function addClassName (origin, newClassName) {
+  if (newClassName === null
+    || newClassName === undefined
+    || newClassName === false) {
+    return origin
+  }
   origin = origin || ''
   origin = origin.split(' ')
   origin.push(newClassName)
@@ -296,7 +340,8 @@ function addClassName (origin, newClassName) {
 }
 
 function supportTransition () {
-  return ('transition' in document.documentElement.style) || ('WebkitTransition' in document.documentElement.style)
+  return ('transition' in document.documentElement.style)
+    || ('WebkitTransition' in document.documentElement.style)
 }
 
 const fadeIn = (function () {
@@ -388,17 +433,79 @@ class Arrow extends Base.Component {
   }
 
   render () {
-    return <button onClick={this.onClickHandler}>{this.props.text}</button>
+    const props = this.props
+    let className = props.className
+    let passedProps = {
+      className
+    }
+    return props.arrow
+      ? props.arrow
+      : <button {...passedProps} onClick={this.onClickHandler}>{this.props.text}</button>
   }
 }
 
 class Indicators extends Base.Component {
   constructor () {
     super(...arguments)
+  }
 
+  onItemHandler (index, e) {
+    e && e.preventDefault()
+    this.props.itemHandler(index)
+  }
+
+  renderIndicatorItems () {
+    const { count, currentIndex, indicatorHoverToSlide } = this.props
+    return (() => {
+      let arr = []
+      for (let i = 0; i < count; i++) {
+        let className = 'slider_indicators_btn'
+        if (i === count - 1) {
+          className = addClassName(className, 'slider_indicators_btn_last')
+        }
+        if (i === currentIndex) {
+          className = addClassName(className, 'slider_indicators_btn_active')
+        }
+        if (indicatorHoverToSlide) {
+          arr.push(<i className={className} onMouseOver={this.onItemHandler.bind(this, i)}></i>)
+        } else {
+          arr.push(<i className={className} onClick={this.onItemHandler.bind(this, i)}></i>)
+        }
+      }
+      return arr
+    })()
+  }
+
+  setStyle () {
+    const domNode = this.dom
+    const width = getWidth(domNode)
+    domNode.style.marginLeft = -(width / 2) + 'px'
+  }
+
+  componentDidMount () {
+    this.setStyle()
+  }
+
+  componentWillUpdate (nextProps) {
+    if (nextProps.count !== this.props.count) {
+      this.setStyle()
+    }
+  }
+
+  shouldComponentUpdate (nextProps, nextState) {
+    if (nextProps.currentIndex !== this.props.currentIndex
+      || nextProps.count !== this.props.count) {
+      return true
+    }
+    return false
   }
 
   render () {
-    return <div></div>
+    const items = this.renderIndicatorItems()
+    return (
+      <div className='slider_indicators'>
+        {items}
+      </div>
+    )
   }
 }
