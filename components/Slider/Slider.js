@@ -1,13 +1,23 @@
+const supportTransition = (function () {
+  return (('transition' in document.documentElement.style)
+    || ('WebkitTransition' in document.documentElement.style))
+})()
+
 class Slider extends Base.Component {
   constructor () {
     super(...arguments)
     this.state = {
-      currentSlide: this.props.currentSlide
+      currentSlide: this.props.currentSlide,
+      lazyLoadedList: []
     }
   }
 
   sliderListRef = (ref) => {
     this.sliderList = ref
+  }
+
+  sliderWrapperRef = (ref) => {
+    this.sliderWrapper = ref
   }
 
   sliderItemsRef = (ref) => {
@@ -23,33 +33,58 @@ class Slider extends Base.Component {
     this.initSlider()
   }
 
+  componentWillMount () {
+    let lazyLoadedList = []
+    const props = this.props
+    const state = this.state
+    const { children, slidesToShow, lazyLoad } = props
+    const currentSlide = state.currentSlide
+    children.forEach((item, i) => {
+      if (i >= currentSlide && i < currentSlide + slidesToShow) {
+        lazyLoadedList.push(i)
+      }
+    })
+
+    if (lazyLoad && state.lazyLoadedList.length === 0) {
+      this.setState({
+        lazyLoadedList: lazyLoadedList
+      })
+    }
+  }
+
   componentDidMount () {
     this.initSlider()
   }
 
   initSlider () {
-    let slideWidth = getWidth(this.dom)
-    let slideCount = this.props.children.length
-    let wrapperStyle = {}
-    wrapperStyle.width = (slideCount + 2 * this.props.slidesToShow) * slideWidth
-    this.sliderItems.forEach((itemNode, i) => {
-      if (i === this.state.currentSlide) {
-        itemNode.style.opacity = 1
-        itemNode.style.filter = `alpha(opacity=100)`
-        itemNode.style.zIndex = 1
-      } else {
-        itemNode.style.opacity = 0
-        itemNode.style.filter = `alpha(opacity=0)`
-        itemNode.style.zIndex = 0
-      }
-    })
+    const props = this.props
+    const { slidesToShow, children, fade } = props
+    let slideWidth = getWidth(this.dom) / slidesToShow
+    let slideCount = children.length
     this.setState({
       mounted: true,
       slideWidth,
       slideCount,
-      wrapperStyle,
       pause: false
     }, () => {
+      if (fade) {
+        this.sliderItems.forEach((itemNode, i) => {
+          if (i === this.state.currentSlide) {
+            itemNode.style.opacity = 1
+            itemNode.style.filter = `alpha(opacity=100)`
+            itemNode.style.zIndex = 1
+          } else {
+            itemNode.style.opacity = 0
+            itemNode.style.filter = `alpha(opacity=0)`
+            itemNode.style.zIndex = 0
+          }
+        })
+      }
+      let wrapperLeftOffset = this.getSliderLeftOffset(this.state.currentSlide)
+      let wrapperStyle = this.getSliderWrapperStyle(wrapperLeftOffset)
+      this.setState({
+        wrapperStyle
+      })
       this.autoPlay()
     })
   }
@@ -83,13 +118,23 @@ class Slider extends Base.Component {
   slideTo (index) {
     let currentSlide
     let targetSlide
-    const { fade, infinite, afterChange, beforeChange, speed } = this.props
-    const { slideCount } = this.state
+    const {
+      fade,
+      infinite,
+      afterChange,
+      beforeChange,
+      speed,
+      slidesToScroll,
+      slidesToShow,
+      lazyLoad,
+      easeType
+    } = this.props
+    const { slideCount, lazyLoadedList } = this.state
     if (this.animating) {
       return
     }
+    currentSlide = this.state.currentSlide
     if (fade) {
-      currentSlide = this.state.currentSlide
       if (infinite === false &&
         (index < 0 || index >= slideCount)) {
         return
@@ -113,24 +158,90 @@ class Slider extends Base.Component {
       this.sliderItems.forEach((itemNode, i) => {
         if (i === targetSlide) {
           itemNode.style.zIndex = 1
-          fadeIn(itemNode, speed, 'ease-in-out')
+          fadeIn(itemNode, speed, easeType)
         } else if (i === currentSlide) {
           itemNode.style.zIndex = 0
           fadeOut(itemNode, speed)
         }
       })
-       this.setState({
+      this.setState({
         currentSlide: targetSlide
       }, function () {
-        setTimeout(() => {
+        this.animationEndCallback = setTimeout(() => {
           this.animating = false
           if (afterChange) {
             afterChange.call(targetSlide)
           }
+          delete this.animationEndCallback
         }, speed)
       })
       this.autoPlay()
+      return
     }
+    let currentSliderLeft = this.getSliderLeftOffset(currentSlide)
+    targetSlide = index
+    if (targetSlide < 0) {
+      if(infinite === false) {
+        currentSlide = 0
+      } else if (slideCount % slidesToScroll !== 0) {
+        currentSlide = slideCount - (slideCount % slidesToScroll)
+      } else {
+        currentSlide = slideCount + targetSlide
+      }
+    } else if (targetSlide >= slideCount) {
+      if(infinite === false) {
+        currentSlide = slideCount - slidesToShow
+      } else if (slideCount % slidesToScroll !== 0) {
+        currentSlide = 0
+      } else {
+        currentSlide = targetSlide - slideCount
+      }
+    } else {
+      currentSlide = targetSlide
+    }
+    let realCurrentSliderLeft = this.getSliderLeftOffset(currentSlide)
+    let targetSliderLeft = this.getSliderLeftOffset(targetSlide)
+    if (infinite === false) {
+      targetSliderLeft = currentSliderLeft
+    }
+    if (this.props.beforeChange) {
+      this.props.beforeChange(this.state.currentSlide, currentSlide);
+    }
+
+    if (this.props.lazyLoad) {
+      let loaded = true
+      let slidesToLoad = []
+      for (let i = targetSlide; i < targetSlide + slidesToShow; i++) {
+        loaded = loaded && (lazyLoadedList.indexOf(i) >= 0)
+        if (!loaded) {
+          slidesToLoad.push(i)
+        }
+      }
+      if (!loaded) {
+        this.setState({
+          lazyLoadedList: lazyLoadedList.concat(slidesToLoad)
+        });
+      }
+    }
+    this.animating = true
+    slideAnimate(this.sliderWrapper, speed, easeType, currentSliderLeft, targetSliderLeft)
+    this.setState({
+      currentSlide: currentSlide
+    }, function () {
+      this.animationEndCallback = setTimeout(() => {
+        this.animating = false
+        let wrapperStyle = this.getSliderWrapperStyle(realCurrentSliderLeft)
+        for (let i in wrapperStyle) {
+          this.sliderWrapper.style[i] = wrapperStyle[i]
+        }
+        if (afterChange) {
+          afterChange.call(currentSlide)
+        }
+        delete this.animationEndCallback
+      }, speed)
+    })
+
+    this.autoPlay()
   }
 
   changeSlide (type, opts) {
@@ -140,10 +251,10 @@ class Slider extends Base.Component {
     unevenOffset = (slideCount % slidesToScroll !== 0)
     indexOffset = unevenOffset ? 0 : (slideCount - currentSlide) % slidesToScroll
     if (type === 'previous') {
-      slideOffset = (indexOffset === 0) ? slidesToScroll : slidesToShow - indexOffset;
+      slideOffset = (indexOffset === 0) ? slidesToScroll : slidesToShow - indexOffset
       targetSlide = currentSlide - slideOffset
     } else if (type === 'next') {
-      slideOffset = (indexOffset === 0) ? slidesToScroll : indexOffset;
+      slideOffset = (indexOffset === 0) ? slidesToScroll : indexOffset
       targetSlide = currentSlide + slideOffset
     } else if (type === 'indicate') {
       targetSlide = opts.index * slidesToScroll
@@ -183,7 +294,7 @@ class Slider extends Base.Component {
 
   canGoNext () {
     if (!this.props.infinite) {
-      let slideCount = this.state.slideCount
+      let slideCount = slideCount
       let slidesToShow = this.props.slidesToShow
       let currentSlide = this.state.currentSlide
       if (slideCount <= slidesToShow
@@ -202,9 +313,10 @@ class Slider extends Base.Component {
     let lastCloneSlides = []
     let key
     let count = children.length
-    const { fade, infinite, speed, lazyload, lazyloadList, slidesToShow } = props
+    const { fade, infinite, speed, lazyLoad, slidesToShow } = props
+    const lazyLoadedList = this.state.lazyLoadedList
     children.forEach((child, index) => {
-      if (lazyload && lazyloadList.indexOf(index) < 0) {
+      if (lazyLoad && lazyLoadedList.indexOf(index) < 0) {
         child = <div />
       }
       let style = this.getSlideStyle(index)
@@ -262,14 +374,76 @@ class Slider extends Base.Component {
     if (props.fade) {
       style.position = 'relative'
       style.left = -index * state.slideWidth
+      if (supportTransition) {
+        style.transition = `opacity ${props.speed}ms ${props.easeType}`,
+        style.WebkitTransition = `opacity ${props.speed}ms ${props.easeType}`
+      }
     }
     return style
+  }
+
+  getSliderWrapperStyle (leftOffset) {
+    const { slideCount, slideWidth } = this.state
+    let wrapperStyle = {
+      opacity: 1,
+      width: (slideCount + 2 * this.props.slidesToShow) * slideWidth
+    }
+    
+    if (supportTransition) {
+      wrapperStyle = Base.Util.extend(wrapperStyle, {
+        WebkitTransform: `translate3d(${leftOffset}px, 0px, 0px)`,
+        transform: `translate3d(${leftOffset}px, 0px, 0px)`,
+        transition: 'none',
+        WebkitTransition: 'none',
+        msTransform: `translateX(${leftOffset}px)`
+      })
+    } else {
+      wrapperStyle = Base.Util.extend(wrapperStyle, {
+        marginLeft: leftOffset + 'px'
+      })
+    }
+    return wrapperStyle
+  }
+
+  getSliderLeftOffset (currentSlide) {
+    const props = this.props
+    const state = this.state
+    const { fade, infinite, slidesToShow, slidesToScroll } = props
+    const { slideCount, slideWidth } = state
+    let sliderLeftOffset
+    if (fade) {
+      return 0
+    }
+    if (infinite) {
+      if (slideCount >= slidesToShow) {
+        sliderLeftOffset = (slideWidth * slidesToShow) * -1
+      }
+      if (slideCount % slidesToScroll !== 0) {
+        if (currentSlide + slidesToScroll > slideCount && slideCount > slidesToShow) {
+          if(currentSlide > slideCount) {
+            sliderLeftOffset = ((slidesToShow - (currentSlide - slideCount)) * slideWidth) * -1;
+          } else {
+            sliderLeftOffset = ((slideCount % slidesToScroll) * slideWidth) * -1;
+          }
+        }
+      }
+    } else {
+      if (slideCount % slidesToScroll !== 0) {
+        if (currentSlide + slidesToScroll > slideCount && slideCount > slidesToShow) {
+          var slidesToOffset = slidesToShow - (slideCount % slidesToScroll)
+          sliderLeftOffset = slidesToOffset * slideWidth
+        }
+      }
+    }
+
+    sliderLeftOffset = ((currentSlide * slideWidth) * -1) + sliderLeftOffset
+    return sliderLeftOffset
   }
 
   render () {
     const props = this.props
     let prevArrow, nextArrow, indicators
-     const prevArrowProps = {
+    const prevArrowProps = {
       clickHandler: this.slideToPrev.bind(this),
       arrow: props.prevArrow,
       className: addClassName('slider_control slider_control_prev', props.prevArrowClassName),
@@ -286,8 +460,8 @@ class Slider extends Base.Component {
       nextArrow = <Arrow {...nextArrowProps} />
     }
     const indicatorsProps = {
-      count: this.state.slideCount,
-      currentIndex: this.state.currentSlide,
+      count: Math.ceil(props.children.length / this.props.slidesToScroll),
+      currentIndex: Math.ceil(this.state.currentSlide / this.props.slidesToScroll),
       itemHandler: this.slideToTarget.bind(this),
       indicatorHoverToSlide: props.indicatorHoverToSlide
     }
@@ -303,7 +477,9 @@ class Slider extends Base.Component {
           ref={this.sliderListRef}
           onMouseOver={this.onSliderOver.bind(this)}
           onMouseOut={this.onSliderOut.bind(this)}>
-          <div className='slider_wrapper' style={this.state.wrapperStyle}>
+          <div className='slider_wrapper'
+            ref={this.sliderWrapperRef}
+            style={this.state.wrapperStyle}>
             {slides}
           </div>
         </div>}
@@ -319,9 +495,10 @@ Slider.defaultProps = {
   slidesToScroll: 1,
   autoPlay: true,
   autoPlayInterval: 3000,
-  fade: true,
+  fade: false,
   infinite: true,
   speed: 300,
+  easeType: 'ease-in-out',
   currentSlide: 0,
   pauseOnHover: true
 }
@@ -346,88 +523,117 @@ function addClassName (origin, newClassName) {
   return origin
 }
 
-function supportTransition () {
-  return (('transition' in document.documentElement.style)
-    || ('WebkitTransition' in document.documentElement.style))
-}
-
-const fadeIn = (function () {
-  const isSupportTransition = supportTransition()
-  return function (node, speed, easeType, callback) {
-    if (!node) {
-      return
-    }
-    if (isSupportTransition) {
-      node.style.opacity = 1
-      node.style.transition = `opacity ${speed}ms ${easeType}`
-      return
-    }
-    node.style.opacity = 0
-    node.style.filter = 'alpha(opacity=0)'
-    if (speed) {
-      let opacity = 0
-      let timer = null
-      function done () {
-        opacity += 16 / speed
-        if (opacity >= 1) {
-          timer && clearTimeout(timer)
-          opacity = 1
-          node.style.opacity = opacity
-          node.style.filter = `alpha(opacity=${opacity * 100})`
-          callback && callback
-        } else {
-          node.style.opacity = opacity
-          node.style.filter = `alpha(opacity=${opacity * 100})`
-          timer && clearTimeout(timer)
-          timer = setTimeout(done, 16)
-        }
-      }
-      timer = setTimeout(done, 16)
-    } else {
-      node.style.opacity = 1
-      node.style.filter = 'alpha(opacity=100)'
-    }
+const fadeIn = function (node, speed, easeType, callback) {
+  if (!node) {
+    return
   }
-})()
-
-const fadeOut = (function () {
-  const isSupportTransition = supportTransition()
-  return function (node, speed, easeType, callback) {
-    if (!node) {
-      return
+  if (supportTransition) {
+    node.style.opacity = 1
+    node.style.transition = `opacity ${speed}ms ${easeType}`
+    return
+  }
+  node.style.opacity = 0
+  node.style.filter = 'alpha(opacity=0)'
+  if (speed) {
+    let opacity = 0
+    let timer = null
+    function done () {
+      opacity += 16 / speed
+      if (opacity >= 1) {
+        timer && clearTimeout(timer)
+        opacity = 1
+        node.style.opacity = opacity
+        node.style.filter = `alpha(opacity=${opacity * 100})`
+        callback && callback
+      } else {
+        node.style.opacity = opacity
+        node.style.filter = `alpha(opacity=${opacity * 100})`
+        timer && clearTimeout(timer)
+        timer = setTimeout(done, 16)
+      }
     }
-    if (isSupportTransition) {
-      node.style.opacity = 0
-      node.style.transition = `opacity ${speed}ms ${easeType}`
-      return
-    }
+    timer = setTimeout(done, 16)
+  } else {
     node.style.opacity = 1
     node.style.filter = 'alpha(opacity=100)'
-    if (speed) {
-      let opacity = 1
-      let timer = null
-      function done () {
-        opacity -= 16 / speed
-        if (opacity <= 0) {
+  }
+}
+
+const fadeOut = function (node, speed, easeType, callback) {
+  if (!node) {
+    return
+  }
+  if (supportTransition) {
+    node.style.opacity = 0
+    return
+  }
+  node.style.opacity = 1
+  node.style.filter = 'alpha(opacity=100)'
+  if (speed) {
+    let opacity = 1
+    let timer = null
+    function done () {
+      opacity -= 16 / speed
+      if (opacity <= 0) {
+        timer && clearTimeout(timer)
+        opacity = 0
+        node.style.opacity = opacity
+        node.style.filter = `alpha(opacity=${opacity * 100})`
+        callback && callback
+      } else {
+        node.style.opacity = opacity
+        node.style.filter = `alpha(opacity=${opacity * 100})`
+        timer && clearTimeout(timer)
+        timer = setTimeout(done, 16)
+      }
+    }
+    timer = setTimeout(done, 16)
+  } else {
+    node.style.opacity = 0
+    node.style.filter = 'alpha(opacity=0)'
+  }
+}
+
+const slideAnimate = function (node, speed, easeType, from, to) {
+  if (supportTransition) {
+    node.style.transform = `translate3d(${to}px, 0px, 0px)`
+    return
+  }
+  node.marginLeft = `${from}px`
+  if (speed && to !== from) {
+    let timer = null
+    let change = to - from
+    let start = from
+    function done () {
+      if (change > 0) {
+        start += Math.abs(change / speed)
+        if (start >= to) {
           timer && clearTimeout(timer)
-          opacity = 0
-          node.style.opacity = opacity
-          node.style.filter = `alpha(opacity=${opacity * 100})`
-          callback && callback
+          start = to
+          node.style.marginLeft = `${start}px`
         } else {
-          node.style.opacity = opacity
-          node.style.filter = `alpha(opacity=${opacity * 100})`
+          node.style.marginLeft = `${start}px`
+          timer && clearTimeout(timer)
+          timer = setTimeout(done, 16)
+        }
+      } else {
+        start -= Math.abs(change / speed)* 16
+        if (start <= to) {
+          timer && clearTimeout(timer)
+          start = to
+          node.style.marginLeft = `${start}px`
+        } else {
+          node.style.marginLeft = `${start}px`
           timer && clearTimeout(timer)
           timer = setTimeout(done, 16)
         }
       }
-      timer = setTimeout(done, 16)
-    } else {
-      node.style.opacity = 0
-      node.style.filter = 'alpha(opacity=0)'
     }
+    timer = setTimeout(done, 16)
+  } else {
+    node.style.marginLeft = `${to}px`
   }
-})()
+}
 
 class Arrow extends Base.Component {
   constructor () {
