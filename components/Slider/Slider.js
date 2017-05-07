@@ -32,6 +32,17 @@ class Slider extends Base.Component {
     let slideCount = this.props.children.length
     let wrapperStyle = {}
     wrapperStyle.width = (slideCount + 2 * this.props.slidesToShow) * slideWidth
+    this.sliderItems.forEach((itemNode, i) => {
+      if (i === this.state.currentSlide) {
+        itemNode.style.opacity = 1
+        itemNode.style.filter = `alpha(opacity=100)`
+        itemNode.style.zIndex = 1
+      } else {
+        itemNode.style.opacity = 0
+        itemNode.style.filter = `alpha(opacity=0)`
+        itemNode.style.zIndex = 0
+      }
+    })
     this.setState({
       mounted: true,
       slideWidth,
@@ -104,11 +115,11 @@ class Slider extends Base.Component {
           itemNode.style.zIndex = 1
           fadeIn(itemNode, speed, 'ease-in-out')
         } else if (i === currentSlide) {
-          fadeOut(itemNode, speed)
           itemNode.style.zIndex = 0
+          fadeOut(itemNode, speed)
         }
       })
-      this.setState({
+       this.setState({
         currentSlide: targetSlide
       }, function () {
         setTimeout(() => {
@@ -248,13 +259,9 @@ class Slider extends Base.Component {
     let style = {}
     style.width = state.slideWidth
     style.float = 'left'
-    const isCurrent = this.state.currentSlide === index
     if (props.fade) {
       style.position = 'relative'
       style.left = -index * state.slideWidth
-      style.opacity = isCurrent ? 1 : 0
-      style.filter = `alpha(opacity=${isCurrent ? 100 : 0})`
-      style.zIndex = isCurrent ? 1 : 0
     }
     return style
   }
@@ -340,8 +347,8 @@ function addClassName (origin, newClassName) {
 }
 
 function supportTransition () {
-  return ('transition' in document.documentElement.style)
-    || ('WebkitTransition' in document.documentElement.style)
+  return (('transition' in document.documentElement.style)
+    || ('WebkitTransition' in document.documentElement.style))
 }
 
 const fadeIn = (function () {
